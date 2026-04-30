@@ -17,4 +17,7 @@ This project implements a unique "Chain Method" (Metodo delle Catene):
 Since this is a client-side JavaScript tool, no installation is required.
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/morsucci47/howell-generator.git](https://github.com/morsucci47/howell-generator.git)
+   git clone [https://github.com/morsucci47/howell-generator.git]
+
+Usage:
+https://morsucci47.github.io/howell-generator/GenHowC2.html
