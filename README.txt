@@ -21,3 +21,4 @@ Since this is a client-side JavaScript tool, no installation is required.
 
 Usage:
 https://morsucci47.github.io/howell-generator/GenHowC2.html
+Tray  25 tables and 40 turns  for example.
