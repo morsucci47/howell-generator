@@ -54,7 +54,7 @@
         <h2>Parametri Torneo</h2>
         <div class="input-group">
             <label for="nTavoli">Numero Tavoli</label>
-            <input type="number" id="nTavoli" value="8" min="2" max="25">
+            <input type="number" id="nTavoli" value="8" min="2" max="31">
         </div>
         <div class="input-group">
             <label for="nTurni">Numero Turni</label>
@@ -214,8 +214,8 @@ function avviaGenerazione() {
                 alert("Troppo pochi turni");
                 return false;
             }
-            if (nTavoliIN > 25) {
-                alert("Massimo 25 tavoli");
+            if (nTavoliIN > 31) {
+                alert("Massimo 31 tavoli");
                 return false;
             }
 
