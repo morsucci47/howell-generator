@@ -965,7 +965,7 @@ function bilanciaMatriceBoards(nTurniIN, boardsTurni) {
 */
 //===============================================================
 function bilanciaMatriceBoards(nTurniIN, boardsTurni) {
-    const AMPIEZZA = 10;
+    const AMPIEZZA = 20;
     let scartiPerBoard = []; // Array per memorizzare gli errori
 
     for (let iGruppo = 0; iGruppo < nTurniIN; iGruppo++) {
@@ -1012,6 +1012,8 @@ function bilanciaMatriceBoards(nTurniIN, boardsTurni) {
 /**
  * Funzione di supporto DP (Beam Search)
  */
+
+/*
 function ottimizzaCoppie(coppie, targetFinale, passoTarget, ampiezza) {
     // Ordiniamo internamente per differenza crescente (senza alterare mappaTurni)
     // Creiamo un oggetto per mantenere il riferimento all'indice originale della collezione attuale
@@ -1043,20 +1045,103 @@ function ottimizzaCoppie(coppie, targetFinale, passoTarget, ampiezza) {
     let finali = [...dp[m - 1][0], ...dp[m - 1][1]];
     let migliore = finali.reduce((p, c) => Math.abs(c.somma - targetFinale) < Math.abs(p.somma - targetFinale) ? c : p);
 
+
     // Rimappiamo le scelte nell'ordine originale di input 'coppie'
     let scelteFinaliOrdinate = new Array(m);
     coppieConInfo.forEach((info, index) => {
         scelteFinaliOrdinate[info.id] = migliore.scelte[index];
     });
-
     //return { scelte: scelteFinaliOrdinate };
 	return { 
         scelte: scelteFinaliOrdinate, 
         sommaFinale: migliore.somma  
     };
 }	
-	
-	
+*/	
+function ottimizzaCoppie(coppie, targetFinale, passoTarget, ampiezza) {
+    // 1. Prepariamo i dati mantenendo l'ordine originale
+    let coppieConInfo = coppie.map((c, i) => ({ val: c, id: i, diff: Math.abs(c[0] - c[1]) }));
+    coppieConInfo.sort((a, b) => a.diff - b.diff);
+
+    let m = coppieConInfo.length;
+    let dp = Array.from({ length: m }, () => [[], []]);
+
+    // 2. Inizializzazione: Prima cifra della prima coppia fissa
+    dp[0][0] = [{ somma: coppieConInfo[0].val[0], scelte: [0] }];
+
+    // 3. Programmazione Dinamica (Beam Search)
+    for (let i = 1; i < m; i++) {
+        let targetAttuale = passoTarget * (i + 1);
+        for (let j = 0; j < 2; j++) {
+            let cifraCorrente = coppieConInfo[i].val[j];
+            let candidati = [];
+            for (let prevJ = 0; prevJ < 2; prevJ++) {
+                for (let percorso of dp[i - 1][prevJ]) {
+                    let s = percorso.somma + cifraCorrente;
+                    candidati.push({ 
+                        somma: s, 
+                        scelte: [...percorso.scelte, j], 
+                        dist: Math.abs(s - targetAttuale) 
+                    });
+                }
+            }
+            candidati.sort((a, b) => a.dist - b.dist);
+            dp[i][j] = candidati.slice(0, ampiezza).map(c => ({ somma: c.somma, scelte: c.scelte }));
+        }
+    }
+
+    // 4. Selezione del migliore dalla DP
+    let finali = [...dp[m - 1][0], ...dp[m - 1][1]];
+    let migliore = finali.reduce((p, c) => 
+        Math.abs(c.somma - targetFinale) < Math.abs(p.somma - targetFinale) ? c : p
+    );
+
+    // 5. FASE DI RAFFINAMENTO (Hill Climbing)
+    let sommaAttuale = migliore.somma;
+    let erroreAttuale = sommaAttuale - targetFinale;
+    let miglioramentoPossibile = true;
+
+    while (miglioramentoPossibile) {
+        miglioramentoPossibile = false;
+        let migliorScambio = null;
+        let minorErroreAssoluto = Math.abs(erroreAttuale);
+
+        // Partiamo da i = 1 perché la prima coppia (indice 0) deve restare fissa
+        for (let i = 1; i < m; i++) {
+            let ns = coppieConInfo[i].val[0];
+            let ew = coppieConInfo[i].val[1];
+            let indiceScelto = migliore.scelte[i];
+            
+            // Delta: quanto cambierebbe la somma invertendo la scelta attuale
+            let delta = (indiceScelto === 0) ? (ew - ns) : (ns - ew);
+            let nuovoErrore = erroreAttuale + delta;
+
+            if (Math.abs(nuovoErrore) < minorErroreAssoluto - 0.0001) {
+                minorErroreAssoluto = Math.abs(nuovoErrore);
+                migliorScambio = { index: i, nuovoIndice: 1 - indiceScelto, delta: delta, nuovoErrore: nuovoErrore };
+                miglioramentoPossibile = true;
+            }
+        }
+
+        if (miglioramentoPossibile) {
+            migliore.scelte[migliorScambio.index] = migliorScambio.nuovoIndice;
+            erroreAttuale = migliorScambio.nuovoErrore;
+            sommaAttuale += migliorScambio.delta;
+        }
+    }
+    migliore.somma = sommaAttuale;
+
+    // 6. Rimappatura all'ordine originale dei turni
+    let scelteFinaliOrdinate = new Array(m);
+    coppieConInfo.forEach((info, index) => {
+        scelteFinaliOrdinate[info.id] = migliore.scelte[index];
+    });
+
+    return { 
+        scelte: scelteFinaliOrdinate, 
+        sommaFinale: migliore.somma  
+    };
+}	
     </script>
 </body>
 </html>
