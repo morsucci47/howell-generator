@@ -108,6 +108,7 @@
         let permuCatVert = [];
         let prove = 0;
         let tMax = 0;
+		let errori_bil= [];
 
         // Matrice risultato globale
         let matriceRisultato = [];
@@ -115,55 +116,75 @@
         // =============================================
         // FUNZIONI UI
         // =============================================
+		function avviaGenerazione() {
+			const status = document.getElementById('info-status');
+			
+			// 1. Pulizia immediata delle tabelle esistenti
+			pulisciInterfaccia();
+			
+			status.innerText = "Calcolo in corso...";
+			status.style.color = "#f39c12";
+
+			// Usiamo setTimeout per permettere al browser di mostrare il messaggio "Calcolo in corso"
+			setTimeout(() => {
+				let esitoOK = generaTorneoHowell();
+				
+				if (esitoOK) {
+					status.innerText = "Generato con successo!";
+					status.style.color = "#27ae60";
+				} else {
+					// 2. Se fallisce, assicuriamoci che l'interfaccia sia pulita
+					pulisciInterfaccia();
+					status.innerText = "Impossibile trovare una soluzione con questi parametri.";
+					status.style.color = "#e74c3c";
+					alert("Errore: L'algoritmo non è riuscito a trovare un movimento valido. Prova a cambiare il numero di turni.");
+				}
+			}, 100);
+			
+		}
+
+//===================================================================
+		function disegnaTabella(matrice, nTurni) {
+			let html = '<table><thead><tr><th>Board \\ Turno</th>';
+			for (let t = 1; t <= nTurni; t++) html += `<th>T ${t}</th>`;
+			html += '</tr></thead><tbody>';
+
+			for (let b = 0; b < nTurni; b++) {
+				// --- LOGICA ERRORE ---
+				// Recuperiamo l'errore dalla variabile globale (se esiste, altrimenti 0)
+				let err = (typeof errori_bil !== 'undefined' && errori_bil[b] !== undefined) ? errori_bil[b] : 0;
+				
+				// Decidiamo il segno (+ o -)
+				let segno = err > 0 ? "+" : "";
+				
+				// Colore dinamico: verde se bilanciato bene, rosso se lo scarto è alto
+				let colore = Math.abs(err) < 0.1 ? "#27ae60" : (Math.abs(err) > 1.5 ? "#e74c3c" : "#f39c12");
+				
+				// Formattiamo la stringa dell'errore
+				let infoErrore = `<span style="color: ${colore}; font-size: 0.8em; font-weight: normal; margin-left: 4px;">
+									(${segno}${err.toFixed(1)})
+								  </span>`;
+
+				// Inseriamo l'errore nella prima cella vicino a B + numero
+				html += `<tr><td><strong>B ${b + 1}</strong>${infoErrore}</td>`;
+				// --- FINE LOGICA ERRORE ---
+
+				for (let t = 0; t < nTurni; t++) {
+					let incontro = matrice[b] ? matrice[b][t] : null;
+					if (incontro) {
+						html += `<td><span class="coppia-cell">${incontro}</span></td>`;
+					} else {
+						html += `<td class="empty-cell">-</td>`;
+					}
+				}
+				html += '</tr>';
+			}
+			html += '</tbody></table>';
+			document.getElementById('table-container').innerHTML = html;
+		}
+//===================================================================
+
 /*
-        function avviaGenerazione() {
-            const statusEl = document.getElementById('info-status');
-            statusEl.innerText = "Calcolo in corso...";
-            updateProgressBar(0);
-
-            // Uso setTimeout per permettere all'UI di aggiornarsi
-            setTimeout(() => {
-                let successo = generaTorneoHowell();
-                
-                if (successo) {
-                    disegnaTabella(matriceRisultato, nTurniIN);
-                    statusEl.innerText = "Generato con successo!";
-                } else {
-                    statusEl.innerText = "Nessuna soluzione trovata.";
-                    document.getElementById('table-container').innerHTML = 
-                        '<p style="color: #e74c3c; text-align: center; padding: 50px;">Impossibile generare il movimento con questi parametri.</p>';
-                }
-                updateProgressBar(100);
-            }, 50);
-        }
-*/
-function avviaGenerazione() {
-    const status = document.getElementById('info-status');
-    
-    // 1. Pulizia immediata delle tabelle esistenti
-    pulisciInterfaccia();
-    
-    status.innerText = "Calcolo in corso...";
-    status.style.color = "#f39c12";
-
-    // Usiamo setTimeout per permettere al browser di mostrare il messaggio "Calcolo in corso"
-    setTimeout(() => {
-        let esitoOK = generaTorneoHowell();
-        
-        if (esitoOK) {
-            status.innerText = "Generato con successo!";
-            status.style.color = "#27ae60";
-        } else {
-            // 2. Se fallisce, assicuriamoci che l'interfaccia sia pulita
-            pulisciInterfaccia();
-            status.innerText = "Impossibile trovare una soluzione con questi parametri.";
-            status.style.color = "#e74c3c";
-            alert("Errore: L'algoritmo non è riuscito a trovare un movimento valido. Prova a cambiare il numero di turni.");
-        }
-    }, 100);
-}
-
-
         function disegnaTabella(matrice, nTurni) {
             let html = '<table><thead><tr><th>Board \\ Turno</th>';
             for (let t = 1; t <= nTurni; t++) html += `<th>T ${t}</th>`;
@@ -184,7 +205,7 @@ function avviaGenerazione() {
             html += '</tbody></table>';
             document.getElementById('table-container').innerHTML = html;
         }
-
+*/
         function updateProgressBar(percent) {
             const fill = document.getElementById('progress-fill');
             if (fill) {
@@ -318,11 +339,22 @@ function generaTorneoHowellRidotto() {
                 let okRido = iCatena < nRido;
                 piazzaCatenaCapo(capiCatenaOut[iCatena], boardsTurni, iTurno, okRido);
             }
+			
+//====================================================================
+			//  Applica l'ottimizzazione
+			//bilanciaMatriceBoards(nTurniIN, boardsTurni); 
+			// 1. Esegui il bilanciamento e salva gli errori
+			errori_bil = bilanciaMatriceBoards(nTurniIN, boardsTurni);
+			
+			
             popolaRisultatoFinale(boardsTurni);
             return 0;
         }
     }
 }
+
+
+
         /**
          * Converte la matrice boardsTurni nel formato leggibile dalla tabella UI
          */
@@ -349,26 +381,6 @@ function generaTorneoHowellRidotto() {
 /*		 
 */
 
-/*
-		function popolaRisultatoFinale(boardsTurni) {
-			// 1. Disegna la prima tabella (Boards / Turni)
-			let risultatoBoards = Array.from({ length: nTurniIN }, () => []);
-			for (let b = 0; b < nTurniIN; b++) {
-				for (let t = 0; t < nTurniIN; t++) {
-					let cell = boardsTurni[b][t];
-					risultatoBoards[b][t] = cell[0] !== 0 ? `${cell[0]}-${cell[1]}` : null;
-				}
-			}
-			disegnaTabella(risultatoBoards, nTurniIN);
-
-			// 2. Calcola e disegna la seconda tabella (Tavoli / Mani)
-			let torneoIN = calcolaTorneoIN(boardsTurni);
-			disegnaTabellaTorneo(torneoIN);
-			
-			// 3. Genera la lista testuale richiesta (tav,board,ns,ew)
-				generaListaMovimenti(torneoIN);			
-		}
-*/
 
 
 /**
@@ -760,7 +772,7 @@ function inizioCercaCapiCompletiVert(nTur, capiCatIn, catene) {
 						ns = boardsTurni[iGruppoBoard][iTurno][0];
 						if (ns !== 0) {
 							ew = boardsTurni[iGruppoBoard][iTurno][1];
-							if(ns < minCoppia && ew != nCoppieIN)  { 							
+							if(ns < minCoppia && ew < minCoppia)  { 							
 								for (let i = 0; i < boardsXturno; i++) {
 									idxMano = iTurno * boardsXturno + i;
 									torneoIN[iTavolo][idxMano] = [iGruppoBoard * boardsXturno + i + 1, ns, ew];
@@ -769,48 +781,28 @@ function inizioCercaCapiCompletiVert(nTur, capiCatIn, catene) {
 							}	
 						}
 					}
-					
-				}
-				
-				
-				/*
-				for (let iTurno = 0; iTurno < nTurniIN; iTurno++) {
-					// Inizializziamo i contatori per le due zone del tavolo
-					let iTavFisso = 0;
-					let iTavMobile = nCoppieIN - nTurniIN; // Ovvero il tuo TavOffset
-					let minCoppia = nTurniIN + 1;
-
-					for (let iGruppoBoard = 0; iGruppoBoard < nTurniIN; iGruppoBoard++) {
-						let ns = boardsTurni[iGruppoBoard][iTurno][0];
-						let ew = boardsTurni[iGruppoBoard][iTurno][1];
-
-						if (ns !== 0) {
-							// Determiniamo la destinazione corretta senza resettare puntatori
-							let targetTavolo;
-							if (ns >= minCoppia) {
-								targetTavolo = iTavFisso;
-								iTavFisso++;
-							} else {
-								targetTavolo = iTavMobile;
-								iTavMobile++;
-							}
-
-							// Riempimento mani
-							for (let i = 0; i < boardsXturno; i++) {
-								let idxMano = iTurno * boardsXturno + i;
-								let idBoard = iGruppoBoard * boardsXturno + i + 1;
-								
-								// Verifica di sicurezza che il tavolo esista
-								if (torneoIN[targetTavolo]) {
-									torneoIN[targetTavolo][idxMano] = [idBoard, ns, ew];
-								}
-							}
+					// RIAGGIUSTA LA ASSEGNAZIONE DELLE COPPIE AI TAVOLI PER AVERE BOARDS SEQUENZIALI
+					if(iTurno>TavOffset-1 && iTurno>1)  {
+						for (let iTav= TavOffset; iTav < nTavoliIN; iTav++) {
+							// numero di board predecente
+							let idxManoPrec = (iTurno-1) * boardsXturno - 1;
+							let BoardPrec= torneoIN[iTav][idxManoPrec][0];
+							for (let kTav= iTav+1; kTav < nTavoliIN; kTav++) {
+								let idxMano = (iTurno-1) * boardsXturno ;
+								if (torneoIN[kTav][idxMano][0]% nTurniIN == (BoardPrec+1) % nTurniIN) {  // SE TROVA LA BOARD successiva
+									//  SCAMBIA iTav con kTav
+									for (let i = 0; i < boardsXturno; i++) {
+										let idxManok = (iTurno-1) * boardsXturno + i;
+										let dato = torneoIN[iTav][idxManok]; // [Board, NS, EW]
+										torneoIN[iTav][idxManok]= torneoIN[kTav][idxManok];
+										torneoIN[kTav][idxManok]= dato;
+									}	
+								}								
+							}	
 						}
-					}
-				}				
-				*/
-				
-				
+					}				
+				}
+										
 			}
 			
 			return torneoIN;
@@ -919,7 +911,152 @@ function pulisciInterfaccia() {
     const movimentiCsv = document.getElementById('movimenti-csv');
     if (movimentiCsv) movimentiCsv.innerText = '';
 }
-		
+	//================================================================	
+	
+/**
+ * Bilancia la matrice boardsTurni ottimizzando la direzione NS/EW
+ */
+/*
+function bilanciaMatriceBoards(nTurniIN, boardsTurni) {
+    const AMPIEZZA = 6;
+
+    for (let iGruppo = 0; iGruppo < nTurniIN; iGruppo++) {
+        let coppieAttuali = [];
+        let mappaTurni = [];
+
+        // 1. Cattura tutte le coppie [NS, EW] per questo board (escludendo i riposi/zero)
+        for (let iTurno = 0; iTurno < nTurniIN; iTurno++) {
+            let ns = boardsTurni[iGruppo][iTurno][0];
+            let ew = boardsTurni[iGruppo][iTurno][1];
+            
+            if (ns !== 0 && ew !== 0) {
+                coppieAttuali.push([ns, ew]);
+                mappaTurni.push(iTurno); // Salva il turno originale per rimetterli a posto
+            }
+        }
+
+        if (coppieAttuali.length === 0) continue;
+
+        // 2. Esegue l'ottimizzazione per questo specifico board
+        // Calcoliamo il target reale: (Somma di tutti i numeri nel board) / 2
+        let sommaTotaleBoard = coppieAttuali.reduce((acc, c) => acc + c[0] + c[1], 0);
+        let targetFinale = sommaTotaleBoard / 2;
+        let passoTarget = sommaTotaleBoard / (2 * coppieAttuali.length);
+
+        let risultato = ottimizzaCoppie(coppieAttuali, targetFinale, passoTarget, AMPIEZZA);
+
+        // 3. Rimette le coppie al loro posto girandole se necessario
+        // Se l'algoritmo ha scelto l'indice 1 (EW), scambiamo NS ed EW
+        risultato.scelte.forEach((scelta, index) => {
+            let iTurnoOriginale = mappaTurni[index];
+            let nsOriginale = coppieAttuali[index][0];
+            let ewOriginale = coppieAttuali[index][1];
+
+            if (scelta === 0) {
+                // Mantiene NS - EW
+                boardsTurni[iGruppo][iTurnoOriginale] = [nsOriginale, ewOriginale];
+            } else {
+                // Inverte: l'originale EW diventa NS
+                boardsTurni[iGruppo][iTurnoOriginale] = [ewOriginale, nsOriginale];
+            }
+        });
+    }
+}
+*/
+//===============================================================
+function bilanciaMatriceBoards(nTurniIN, boardsTurni) {
+    const AMPIEZZA = 10;
+    let scartiPerBoard = []; // Array per memorizzare gli errori
+
+    for (let iGruppo = 0; iGruppo < nTurniIN; iGruppo++) {
+        let coppieAttuali = [];
+        let mappaTurni = [];
+
+        for (let iTurno = 0; iTurno < nTurniIN; iTurno++) {
+            let ns = boardsTurni[iGruppo][iTurno][0];
+            let ew = boardsTurni[iGruppo][iTurno][1];
+            if (ns !== 0 && ew !== 0) {
+                coppieAttuali.push([ns, ew]);
+                mappaTurni.push(iTurno);
+            }
+        }
+
+        if (coppieAttuali.length === 0) {
+            scartiPerBoard.push(0);
+            continue;
+        }
+
+        let sommaTotaleBoard = coppieAttuali.reduce((acc, c) => acc + c[0] + c[1], 0);
+        let targetFinale = sommaTotaleBoard / 2;
+        let passoTarget = sommaTotaleBoard / (2 * coppieAttuali.length);
+
+        let risultato = ottimizzaCoppie(coppieAttuali, targetFinale, passoTarget, AMPIEZZA);
+
+        // Calcoliamo l'errore: (Somma NS ottenuta) - (Target Ideale)
+        let errore = risultato.sommaFinale - targetFinale;
+        scartiPerBoard.push(errore);
+
+        // Aggiornamento matrice fisica
+        risultato.scelte.forEach((scelta, index) => {
+            let iTurnoOriginale = mappaTurni[index];
+            if (scelta === 1) { // Invertiamo se l'algoritmo ha scelto l'indice 1
+                let nsOrig = boardsTurni[iGruppo][iTurnoOriginale][0];
+                let ewOrig = boardsTurni[iGruppo][iTurnoOriginale][1];
+                boardsTurni[iGruppo][iTurnoOriginale] = [ewOrig, nsOrig];
+            }
+        });
+    }
+    return scartiPerBoard; // Restituiamo gli errori
+}
+
+/**
+ * Funzione di supporto DP (Beam Search)
+ */
+function ottimizzaCoppie(coppie, targetFinale, passoTarget, ampiezza) {
+    // Ordiniamo internamente per differenza crescente (senza alterare mappaTurni)
+    // Creiamo un oggetto per mantenere il riferimento all'indice originale della collezione attuale
+    let coppieConInfo = coppie.map((c, i) => ({ val: c, id: i, diff: Math.abs(c[0] - c[1]) }));
+    coppieConInfo.sort((a, b) => a.diff - b.diff);
+
+    let m = coppieConInfo.length;
+    let dp = Array.from({ length: m }, () => [[], []]);
+
+    // Inizializzazione (prima cifra fissa della prima coppia ordinata)
+    dp[0][0] = [{ somma: coppieConInfo[0].val[0], scelte: [0] }];
+
+    for (let i = 1; i < m; i++) {
+        let targetAttuale = passoTarget * (i + 1);
+        for (let j = 0; j < 2; j++) {
+            let cifra = coppieConInfo[i].val[j];
+            let candidati = [];
+            for (let prevJ = 0; prevJ < 2; prevJ++) {
+                for (let percorso of dp[i - 1][prevJ]) {
+                    let s = percorso.somma + cifra;
+                    candidati.push({ somma: s, scelte: [...percorso.scelte, j], dist: Math.abs(s - targetAttuale) });
+                }
+            }
+            candidati.sort((a, b) => a.dist - b.dist);
+            dp[i][j] = candidati.slice(0, ampiezza).map(c => ({ somma: c.somma, scelte: c.scelte }));
+        }
+    }
+
+    let finali = [...dp[m - 1][0], ...dp[m - 1][1]];
+    let migliore = finali.reduce((p, c) => Math.abs(c.somma - targetFinale) < Math.abs(p.somma - targetFinale) ? c : p);
+
+    // Rimappiamo le scelte nell'ordine originale di input 'coppie'
+    let scelteFinaliOrdinate = new Array(m);
+    coppieConInfo.forEach((info, index) => {
+        scelteFinaliOrdinate[info.id] = migliore.scelte[index];
+    });
+
+    //return { scelte: scelteFinaliOrdinate };
+	return { 
+        scelte: scelteFinaliOrdinate, 
+        sommaFinale: migliore.somma  
+    };
+}	
+	
+	
     </script>
 </body>
 </html>
