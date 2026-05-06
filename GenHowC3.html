@@ -804,6 +804,19 @@ function inizioCercaCapiCompletiVert(nTur, capiCatIn, catene) {
 				}
 										
 			}
+			//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+			// Una volta popolata completamente la matrice torneoIN[iTavolo][iTurno]
+			// dove ogni cella è [iBoard + 1, ns, ew]
+
+			torneoIN.sort((tavoloA, tavoloB) => {
+				// Recuperiamo il numero del board al primo turno (indice 0)
+				// tavoloA[0] è l'array [numeroBoard, ns, ew]
+				let boardT1_A = tavoloA[0] ? tavoloA[0][0] : 0;
+				let boardT1_B = tavoloB[0] ? tavoloB[0][0] : 0;
+
+				return boardT1_A - boardT1_B;
+			});			
+			//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 			
 			return torneoIN;
 		}
