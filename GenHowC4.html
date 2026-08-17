@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generatore Movimenti Howell</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f9; margin: 0; display: flex; height: 100vh; }
+        
+        /* Sidebar Comandi */
+        #sidebar { width: 200px; background-color: #2c3e50; color: white; padding: 20px; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
+        h2 { color: #3498db; font-size: 1.2rem; }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-size: 0.9rem; }
+        input, select { width: 50%; padding: 8px; border-radius: 4px; border: none; margin-bottom: 10px; }
+        
+        button { 
+            width: 100%; padding: 12px; background-color: #27ae60; color: white; border: none; 
+            border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 1rem; transition: background 0.3s;
+        }
+        button:hover { background-color: #2ecc71; }
+
+        #progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #34495e;
+            border-radius: 4px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        #progress-fill {
+            height: 100%;
+            width: 0%;
+            background: #3498db;
+            transition: width 0.1s;
+        }
+
+        /* Area Risultati */
+        #main-content { flex-grow: 1; padding: 20px; overflow: auto; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; background: white; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; font-size: 0.85rem; }
+        th { background-color: #3498db; color: white; position: sticky; top: 0; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        
+        .coppia-cell { font-weight: bold; color: #e67e22; }
+        .empty-cell { color: #ccc; font-style: italic; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h2>Parametri Torneo</h2>
+        <div class="input-group">
+            <label for="nTavoli">Numero Tavoli</label>
+            <input type="number" id="nTavoli" value="8" min="2" max="31">
+        </div>
+        <div class="input-group">
+            <label for="nTurni">Numero Turni</label>
+            <input type="number" id="nTurni" value="11" min="2">
+        </div>
+        <div class="input-group">
+            <label for="nBxt">Boards per Turno</label>
+            <input type="number" id="nBxt" value="1" min="1">
+        </div>
+        <div class="input-group">
+            <label for="tipoBilanciamento">Strategia Bilanciamento</label>
+            <select id="tipoBilanciamento">
+                <option value="0">Nessuna ottimizzazione</option>
+                <option value="1">Ottimizzazione somme NS/EW</option>
+                <option value="2">Coppie Fisse in NS</option>
+            </select>
+        </div>        
+        <hr>
+        <button onclick="avviaGenerazione()">GENERA MOVIMENTO</button>
+        
+        <div id="progress-bar"><div id="progress-fill"></div></div>
+        <div id="info-status" style="margin-top:20px; font-size: 0.8rem; color: #bdc3c7;">
+            Stato: Pronto
+        </div>
+    </div>
+
+    <div id="main-content">
+        <div class="card">
+            <h2>Movimenti Howell</h2>
+            <h3>Matrice Boards / Turni</h3>
+            <p style="font-size: 0.9rem; color: #666;">
+                Nelle colonne i Turni, nelle righe i Gruppi di Board. Le caselle mostrano l'incontro (Coppia NS - Coppia EW).
+            </p>
+            <p style="font-size: 0.9rem; color: #666;">
+                I numeri tra parentesi mostrano lo sbilanciamento (Somma(coppie in NS) - Somma(coppie in EW)).
+            </p>
+            <div id="table-container">
+                <p style="color: #999; text-align: center; padding: 50px;">Configura i parametri e clicca su Genera.</p>
+            </div>
+        </div>
+		<div class="card" style="margin-top: 30px;">
+			<h3>Disposizione Tavoli (TorneoIN)</h3>
+			<div id="torneo-container"></div>
+		</div>
+		<div class="card" style="margin-top: 30px;">
+			<h3>Lista Movimenti (Tav,Board,CoppiaNS,CoppiaEW)</h3>
+			<pre id="movimenti-csv" style="background: #eee; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 0.9rem; max-height: 400px; overflow: auto;"></pre>
+			<button onclick="copiaTesto()" style="width: auto; background-color: #34495e; padding: 5px 15px;">Copia Lista</button>
+		</div>
+    </div>
+
+
+    <script>
+        // =============================================
+        // VARIABILI GLOBALI
+        // =============================================
+        let nTavoli, nTurni, nCoppie, nCoppieVere, nBoards, nMani, nGruppi, nCatene, nRido;
+        let nCoppieIN, nBoardsIN, nTavoliIN, nTurniIN, boardsXturno;
+
+        // Variabili per il backtracking (tutte minuscole per consistenza)
+        let permuCat = [];
+        let permuCatVert = [];
+        let prove = 0;
+        let tMax = 0;
+		let errori_bil= [];
+
+        // Matrice risultato globale
+        let matriceRisultato = [];
+
+        // =============================================
+        // FUNZIONI UI
+        // =============================================
+		function avviaGenerazione() {
+			const status = document.getElementById('info-status');
+			
+			// 1. Pulizia immediata delle tabelle esistenti
+			pulisciInterfaccia();
+			
+			status.innerText = "Calcolo in corso...";
+			status.style.color = "#f39c12";
+
+			// Usiamo setTimeout per permettere al browser di mostrare il messaggio "Calcolo in corso"
+			setTimeout(() => {
+				let esitoOK = generaTorneoHowell();
+				
+				if (esitoOK) {
+					status.innerText = "Generato con successo!";
+					status.style.color = "#27ae60";
+				} else {
+					// 2. Se fallisce, assicuriamoci che l'interfaccia sia pulita
+					pulisciInterfaccia();
+					status.innerText = "Impossibile trovare una soluzione con questi parametri.";
+					status.style.color = "#e74c3c";
+					alert("Errore: L'algoritmo non è riuscito a trovare un movimento valido. Prova a cambiare il numero di turni.");
+				}
+			}, 100);
+			
+		}
+
+//===================================================================
+		function disegnaTabella(matrice, nTurni) {
+			let html = '<table><thead><tr><th>Board \\ Turno</th>';
+			for (let t = 1; t <= nTurni; t++) html += `<th>T ${t}</th>`;
+			html += '</tr></thead><tbody>';
+
+			for (let b = 0; b < nTurni; b++) {
+				// --- LOGICA ERRORE ---
+				// Recuperiamo l'errore dalla variabile globale (se esiste, altrimenti 0)
+				let err = (typeof errori_bil !== 'undefined' && errori_bil[b] !== undefined) ? errori_bil[b] : 0;
+				
+				// Decidiamo il segno (+ o -)
+				let segno = err > 0 ? "+" : "";
+				
+				// Colore dinamico: verde se bilanciato bene, rosso se lo scarto è alto
+				let colore = Math.abs(err) < 0.1 ? "#27ae60" : (Math.abs(err) > 1.5 ? "#e74c3c" : "#f39c12");
+				
+				// Formattiamo la stringa dell'errore
+				let infoErrore = `<span style="color: ${colore}; font-size: 0.8em; font-weight: normal; margin-left: 4px;">
+									(${segno}${err.toFixed(1)})
+								  </span>`;
+
+				// Inseriamo l'errore nella prima cella vicino a B + numero
+				html += `<tr><td><strong>B ${b + 1}</strong>${infoErrore}</td>`;
+				// --- FINE LOGICA ERRORE ---
+
+				for (let t = 0; t < nTurni; t++) {
+					let incontro = matrice[b] ? matrice[b][t] : null;
+					if (incontro) {
+						html += `<td><span class="coppia-cell">${incontro}</span></td>`;
+					} else {
+						html += `<td class="empty-cell">-</td>`;
+					}
+				}
+				html += '</tr>';
+			}
+			html += '</tbody></table>';
+			document.getElementById('table-container').innerHTML = html;
+		}
+//===================================================================
+
+/*
+        function disegnaTabella(matrice, nTurni) {
+            let html = '<table><thead><tr><th>Board \\ Turno</th>';
+            for (let t = 1; t <= nTurni; t++) html += `<th>T ${t}</th>`;
+            html += '</tr></thead><tbody>';
+
+            for (let b = 0; b < nTurni; b++) {
+                html += `<tr><td><strong>B ${b + 1}</strong></td>`;
+                for (let t = 0; t < nTurni; t++) {
+                    let incontro = matrice[b] ? matrice[b][t] : null;
+                    if (incontro) {
+                        html += `<td><span class="coppia-cell">${incontro}</span></td>`;
+                    } else {
+                        html += `<td class="empty-cell">-</td>`;
+                    }
+                }
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+            document.getElementById('table-container').innerHTML = html;
+        }
+*/
+        function updateProgressBar(percent) {
+            const fill = document.getElementById('progress-fill');
+            if (fill) {
+                fill.style.width = Math.min(100, Math.max(0, percent)) + '%';
+            }
+        }
+
+        // =============================================
+        // ALGORITMO HOWELL
+        // =============================================
+
+        /**
+         * Funzione principale chiamata dal tasto "GENERA"
+         */
+        function generaTorneoHowell() {
+            let esito;
+            let esitoOK = false;
+
+            if (!inizializzaHowell()) return false;
+
+            // Validazione parametri
+            if (nTurniIN > nTurni) {
+                alert("Troppi turni richiesti per queste coppie");
+                return false;
+            }
+            if (nTurniIN < nTavoliIN) {
+                alert("Troppo pochi turni");
+                return false;
+            }
+            if (nTavoliIN > 31) {
+                alert("Massimo 31 tavoli");
+                return false;
+            }
+
+            // Loop principale di ricerca
+            let maxIterations = 1000000; // Limite di sicurezza
+            let iterations = 0;
+            
+            while (iterations < maxIterations) {
+                iterations++;
+                esito = generaTorneoHowellRidotto();
+                if (esito === 0) {
+                    esitoOK = true;
+                    break;
+                } else if (esito === 1) {
+                    // Continua il loop di backtrack
+                } else if (esito === 2) {
+                    esitoOK = false;
+                    break;
+                }
+            }
+
+            return esitoOK;
+        }
+
+        /**
+         * Configura le variabili globali basandosi sugli input dell'utente
+         */
+        function inizializzaHowell() {
+            nTavoliIN = parseInt(document.getElementById('nTavoli').value);
+            boardsXturno = parseInt(document.getElementById('nBxt').value);
+            nTurniIN = parseInt(document.getElementById('nTurni').value);
+
+            nCoppieIN = nTavoliIN * 2;
+            nGruppi = nBoards = nTurniIN;
+            nTurni = nCoppieIN - 1;
+            nCatene = nTavoliIN - 1;
+            nRido = nTurni - nTurniIN;
+
+            // Reset permutazioni
+            permuCat = new Array(nCatene).fill(0);
+            permuCatVert = new Array(nCatene).fill(0);
+
+            prove = 0;
+            tMax = Math.pow(nTurniIN / 4, nCatene);
+            if (tMax < 1) tMax = 1;
+
+            // Inizializza matrice risultato
+            matriceRisultato = [];
+
+            return true;
+        }
+
+/**
+ * Cuore dell'algoritmo - CORRETTO
+ */
+function generaTorneoHowellRidotto() {
+    let i, iTurno, iBoard, iCatena, esito;
+    let boardsTurni = Array.from({ length: nTurniIN }, () =>
+        Array.from({ length: nTurniIN }, () => [0, 0])
+    );
+    let nTur = new Array(nCatene).fill(nTurniIN);
+    let nTurV = new Array(nCatene).fill(nTurniIN);
+    let catene = [];
+    let cateneV = [];
+    let capiCatena = Array.from({ length: nCatene }, () => [0, 0]);
+    let capiCatenaOut = Array.from({ length: nCatene }, () => [0, 0]);
+    // CERCA CAPICATENA ORIZZONTALI
+    inizioCercaCapiCompleti(nTur, catene);
+    while (true) {
+        esito = 1;
+        while (esito === 1) {
+            esito = cercaCapiCompleti(nTur, catene, capiCatenaOut);
+        }
+        if (esito === 2) {
+            return 2;  // Nessuna soluzione orizzontale
+        }
+        // CERCA CAPICATENA VERTICALI
+        for (i = 0; i < nCatene; i++) permuCatVert[i] = 0;
+        inizioCercaCapiCompletiVert(nTurV, capiCatenaOut, cateneV);
+        esito = 1;
+        while (esito === 1) {
+            esito = cercaCapiCompletiVert(nTurV, cateneV, capiCatenaOut, capiCatena);
+        }
+        if (esito === 2) {
+            if (nTavoliIN === nTurniIN) {
+                return 2;  // Nessuna soluzione
+            }
+            // Se ridotto, il while(true) continua (come nel C++)
+            // NON serve continue esplicito
+        }
+        if (esito === 0) {
+            // Mette la diagonale principale
+            for (iBoard = 0; iBoard < nBoards; iBoard++) {
+                boardsTurni[iBoard][iBoard][0] = iBoard + 1;
+                boardsTurni[iBoard][iBoard][1] = nCoppieIN;
+            }
+            // Piazza le catene
+            for (iCatena = 0; iCatena < nCatene; iCatena++) {
+                iTurno = distanza(capiCatenaOut[iCatena][1], capiCatena[iCatena][1]);
+                let okRido = iCatena < nRido;
+                piazzaCatenaCapo(capiCatenaOut[iCatena], boardsTurni, iTurno, okRido);
+            }
+			
+//====================================================================
+			//  Applica l'ottimizzazione
+
+            // NUOVA LOGICA DI BILANCIAMENTO
+            // Legge la strategia scelta dall'utente
+            const strategia = parseInt(document.getElementById('tipoBilanciamento').value);
+            
+            if (strategia === 1) {
+                // Bilanciamento ottimizzato (funzione originale)
+                errori_bil = bilanciaMatriceBoards(nTurniIN, boardsTurni);
+            } 
+            else if (strategia === 2) {
+                // Bilanciamento forzato: Coppia fissa sempre in NS
+                errori_bil = bilanciaForzataNS(nTurniIN, boardsTurni);
+            } 
+            else {
+                // Strategia 0: Nessun bilanciamento 
+                errori_bil =CalcolaSbilanciamento(nTurniIN, boardsTurni);
+            }            
+
+			
+            popolaRisultatoFinale(boardsTurni);
+            return 0;
+        }
+    }
+}
+
+
+
+        /**
+         * Converte la matrice boardsTurni nel formato leggibile dalla tabella UI
+         */
+        function popolaRisultatoFinale(boardsTurni) {
+			// 1. Disegna la prima tabella (Boards / Turni)
+            matriceRisultato = [];
+            for (let b = 0; b < nTurniIN; b++) {
+                matriceRisultato[b] = [];
+                for (let t = 0; t < nTurniIN; t++) {
+                    let ns = boardsTurni[b][t][0];
+                    let ew = boardsTurni[b][t][1];
+                    matriceRisultato[b][t] = (ns !== 0) ? `${ns}-${ew}` : null;
+                }
+            }
+			disegnaTabella(matriceRisultato, nTurniIN);
+			
+			// 2. Calcola e disegna la seconda tabella (Tavoli / Mani)
+			let torneoIN = calcolaTorneoIN(boardsTurni);
+            //torneoIN = ottimizzaLineaDiGiocoIndipendente(torneoIN, nTurniIN);
+
+			disegnaTabellaTorneo(torneoIN);
+			
+			// 3. Genera la lista testuale richiesta (tav,board,ns,ew)
+				generaListaMovimenti(torneoIN);			
+        }
+/*		 
+*/
+
+
+
+/**
+ * Inizializza le catene orizzontali - CORRETTO
+ */
+function inizioCercaCapiCompleti(nTur, catene) {
+    let i, iCatena, iTur;
+    // Inizializza array catene
+    for (iCatena = 0; iCatena < nCatene; iCatena++) {
+        catene[iCatena] = [];
+    }
+    // Genera i capicatena con metodo 1+
+    for (iCatena = nRido; iCatena < nCatene; iCatena++) {
+        catene[iCatena][0] = [1, nCatene - iCatena + 1];
+    }
+    // Completa le catene dai capi di ingresso
+    for (iCatena = nRido; iCatena < nCatene; iCatena++) {
+        for (i = 1; i < nTurniIN; i++) {
+            catene[iCatena][i] = [
+                ((catene[iCatena][i - 1][0] - 1) - 1 + nTurniIN) % nTurniIN + 1,
+                ((catene[iCatena][i - 1][1] - 1) - 1 + nTurniIN) % nTurniIN + 1
+            ];
+        }
+    }
+    // Inizializza nTur
+    for (iCatena = 0; iCatena < nCatene; iCatena++) {
+        nTur[iCatena] = nTurniIN;
+    }
+    // Toglie le coppie già usate - PARTE DA i=1 COME IL C++
+    for (iCatena = nRido + 1; iCatena < nCatene; iCatena++) {
+        iTur = 0;
+        for (i = 1; i < nTurniIN; i++) {  // ← CORRETTO: parte da 1
+            if (catene[iCatena][i][0] !== catene[nRido][0][0] &&
+                catene[iCatena][i][1] !== catene[nRido][0][0] &&
+                catene[iCatena][i][0] !== catene[nRido][0][1] &&
+                catene[iCatena][i][1] !== catene[nRido][0][1]) {
+                catene[iCatena][iTur][0] = catene[iCatena][i][0];
+                catene[iCatena][iTur][1] = catene[iCatena][i][1];
+                iTur++;
+            }
+        }
+        nTur[iCatena] = iTur;
+    }
+    return iTur;
+}
+/**
+ * Cerca i capicatena orizzontali - CORRETTO
+ */
+function cercaCapiCompleti(nTur, catene, capiCatOut) {
+    let i, k, iCatena, count;
+    let I = [];
+    let mancante;
+    let presente = new Array(nCoppieIN + 1).fill(false);
+    // Imposta il punto di partenza
+    if (nRido < nCatene) {
+        capiCatOut[nRido] = [catene[nRido][0][0], catene[nRido][0][1]];
+    }
+    // Sceglie catene ruotate e verifica presenze
+    for (i = 1; i < nTurniIN + 1; i++) presente[i] = false;
+    if (nRido < nCatene) {
+        presente[1] = true;
+        presente[capiCatOut[nRido][1]] = true;
+        count = 2;
+        for (iCatena = nRido + 1; iCatena < nCatene; iCatena++) {
+            capiCatOut[iCatena] = [
+                catene[iCatena][permuCat[iCatena]][0],
+                catene[iCatena][permuCat[iCatena]][1]
+            ];
+            if (presente[capiCatOut[iCatena][0]] || presente[capiCatOut[iCatena][1]]) {
+                break;
+            }
+            presente[capiCatOut[iCatena][0]] = true;
+            presente[capiCatOut[iCatena][1]] = true;
+            count += 2;
+        }
+    } else {
+        count = 0;
+        iCatena = 0;
+    }
+    // CONDIZIONE CORRETTA come il C++
+    if (count === nTurniIN - nRido - 1) {
+        // Cerca le coppie assenti
+        k = 0;
+        for (i = 1; i < nTurniIN + 1; i++) {
+            if (!presente[i]) {
+                I[k] = i;
+                k++;
+            }
+        }
+        mancante = I[k - 1];
+        // Genera i capi delle catene anomale
+        for (iCatena = 0; iCatena < nRido; iCatena++) {
+            capiCatOut[iCatena] = [
+                nCoppieIN - 1 - iCatena,
+                (I[iCatena] - 1 + nTurniIN - mancante + nTurniIN) % nTurniIN + 1
+            ];
+        }
+        if (nRido === nCatene) return 0;
+        // Sposta i capicatena per normalizzare
+        for (iCatena = nRido; iCatena < nCatene; iCatena++) {
+            capiCatOut[iCatena][0] = ((capiCatOut[iCatena][0] - 1) + nTurniIN - mancante + nTurniIN) % nTurniIN + 1;
+            capiCatOut[iCatena][1] = ((capiCatOut[iCatena][1] - 1) + nTurniIN - mancante + nTurniIN) % nTurniIN + 1;
+        }
+        let ok = ruotaTutteRido(nRido, nTur, nCatene - 1);
+        if (!ok) {
+            return 2;
+        }
+        return 0;
+    } else {
+        let ok = ruotaTutteRido(nRido, nTur, iCatena);
+        if (!ok) {
+            return 2;
+        }
+        return 1;
+    }
+}
+/**
+ * Inizializza le catene verticali - CORRETTO
+ */
+function inizioCercaCapiCompletiVert(nTur, capiCatIn, catene) {
+    let i, iCatena, iTur;
+    // Copia i capi di ingresso
+    for (iCatena = 0; iCatena < nCatene; iCatena++) {
+        catene[iCatena] = [];
+        catene[iCatena][0] = [capiCatIn[iCatena][0], capiCatIn[iCatena][1]];
+    }
+    // Completa le catene
+    for (iCatena = 0; iCatena < nCatene; iCatena++) {
+        for (i = 1; i < nTurniIN; i++) {
+            if (iCatena < nRido) {
+                catene[iCatena][i] = [catene[iCatena][i - 1][0], 0];
+            } else {
+                catene[iCatena][i] = [((catene[iCatena][i - 1][0] - 1) - 1 + nTurniIN) % nTurniIN + 1, 0];
+            }
+            catene[iCatena][i][1] = ((catene[iCatena][i - 1][1] - 1) - 1 + nTurniIN) % nTurniIN + 1;
+        }
+    }
+    for (iCatena = 0; iCatena < nCatene; iCatena++) {
+        nTur[iCatena] = nTurniIN;
+    }
+    // Se ridotto - PARTE DA i=1 COME IL C++
+    if (nTavoliIN !== nTurniIN) {
+        for (iCatena = 0; iCatena < nCatene; iCatena++) {
+            iTur = 0;
+            for (i = 1; i < nTurniIN; i++) {  // ← CORRETTO: parte da 1
+                if (catene[iCatena][i][0] !== 1 && catene[iCatena][i][1] !== 1) {
+                    catene[iCatena][iTur][0] = catene[iCatena][i][0];
+                    catene[iCatena][iTur][1] = catene[iCatena][i][1];
+                    iTur++;
+                }
+            }
+            nTur[iCatena] = iTur;
+        }
+    }
+    return nTur[0];
+}
+        /**
+         * Calcola la distanza circolare tra due punti nel turno
+         */
+        function distanza(a, b) {
+            return (a - b + nTurniIN) % nTurniIN;
+        }
+
+        /**
+         * Cerca i capicatena verticali validando le distanze e le presenze
+         */
+        function cercaCapiCompletiVert(nTur, catene, capiCatIn, capiCatOut) {
+            let i, result, count;
+            let presente = new Array(nCoppieIN + 1).fill(false);
+            let presenteDist = new Array(nTurniIN).fill(false);
+            let iCatena;
+
+            // Inizializzazione vincoli
+            presente[1] = true;
+            presenteDist[nTurniIN - 1] = true;
+
+            count = nRido;
+
+            for (iCatena = 0; iCatena < nCatene; iCatena++) {
+                let idx = permuCatVert[iCatena] || 0;
+                
+                if (!catene[iCatena] || !catene[iCatena][idx]) {
+                    break;
+                }
+                
+                capiCatOut[iCatena] = [
+                    catene[iCatena][idx][0],
+                    catene[iCatena][idx][1]
+                ];
+
+                if (!capiCatIn[iCatena]) {
+                    break;
+                }
+                
+                result = distanza(capiCatIn[iCatena][1], capiCatOut[iCatena][1]);
+
+                // Controllo collisioni coppie e distanze
+                if (presente[capiCatOut[iCatena][0]] || 
+                    presente[capiCatOut[iCatena][1]] || 
+                    presenteDist[result]) {
+                    break; 
+                }
+
+                presente[capiCatOut[iCatena][0]] = true;
+                presente[capiCatOut[iCatena][1]] = true;
+                presenteDist[result] = true;
+
+                if (iCatena < nRido) {
+                    count++;
+                } else {
+                    count += 2;
+                }
+            }
+
+            // Verifica se abbiamo completato il torneo
+            if (count === nTurni - 1) {
+                return 0;
+            } else {
+                let ok = ruotaTutteRidoVert(0, nTur, iCatena);
+                if (!ok) {
+                    return 2;
+                }
+                
+                prove++;
+                if (tMax > 0) {
+                    updateProgressBar((prove / tMax / 16) * 100);
+                }
+
+                return 1;
+            }
+        }
+
+        /**
+         * Piazza fisicamente una catena nella matrice BoardsTurni
+         */
+        function piazzaCatenaCapo(coppia, boardsTurni, iTurno, okRido) {
+            let i, j, k;
+            let a0 = coppia[0];
+            let a1 = coppia[1];
+            
+            j = iTurno;
+            i = nTurniIN - 1;
+
+            for (k = 0; k < nTurniIN; k++) {
+                if (i >= 0 && j >= 0 && boardsTurni[i] && boardsTurni[i][j]) {
+                    boardsTurni[i][j][0] = a0;
+                    boardsTurni[i][j][1] = a1;
+                }
+
+                i--;
+                j = (j - 1 + nTurniIN) % nTurniIN;
+
+                if (!okRido) {
+                    a0 = ((a0 - 1) - 1 + nTurniIN) % nTurniIN + 1;
+                }
+                a1 = ((a1 - 1) - 1 + nTurniIN) % nTurniIN + 1;
+            }
+        }
+
+        /**
+         * Rotazione backtracking per catene orizzontali
+         */
+        function ruotaTutteRido(nRidoParam, nTur, iCatena) {
+            let i, k;
+
+            for (k = iCatena; k >= nRidoParam; k--) {
+                permuCat[k]++;
+                
+                if (permuCat[k] < nTur[k]) {
+                    // Reset catene successive
+                    for (i = k + 1; i < nCatene; i++) {
+                        permuCat[i] = 0;
+                    }
+                    return true;
+                } else {
+                    permuCat[k] = 0;
+                }
+            }
+            
+            return false;
+        }
+
+        /**
+         * Rotazione backtracking per catene verticali
+         */
+        function ruotaTutteRidoVert(nRidoParam, nTurV, iCatena) {
+            let i, k;
+
+            for (k = iCatena; k >= nRidoParam; k--) {
+                permuCatVert[k]++;
+                
+                if (permuCatVert[k] < nTurV[k]) {
+                    // Reset catene successive
+                    for (i = k + 1; i < nCatene; i++) {
+                        permuCatVert[i] = 0;
+                    }
+                    return true;
+                } else {
+                    permuCatVert[k] = 0;
+                }
+            }
+            
+            return false;
+        }
+//====================================================================================		
+		/**
+		 *  logica di assegnazione tavoli (TorneoIN)
+		 */
+		function calcolaTorneoIN(boardsTurni) {
+			// Inizializza TorneoIN: [nTavoliIN][nManiTotali][3 (Board, NS, EW)]
+			const nManiTotali = nTurniIN * boardsXturno;
+			let torneoIN = Array.from({ length: nTavoliIN }, () => 
+				Array.from({ length: nManiTotali }, () => [0, 0, 0])
+			);
+
+			const BOARD = 0, COPPIA_NS = 1, COPPIA_EW = 2;
+
+			// Caso speciale: 3 tavoli, 7 turni (Estensione Howell)
+			if (nTavoliIN === 3 && nTurniIN === 7 && estensioneOK) {
+				// Primi 4 turni (regolari)
+				for (let iTurno = 0; iTurno < 4; iTurno++) {
+					let iTavolo = 0;
+					for (let iGruppoBoard = 0; iGruppoBoard < 4; iGruppoBoard++) {
+						if (boardsTurni[iGruppoBoard][iTurno][0] !== 0 && iGruppoBoard !== iTurno) {
+							let ns = boardsTurni[iGruppoBoard][iTurno][0];
+							let ew = boardsTurni[iGruppoBoard][iTurno][1];
+							for (let i = 0; i < boardsXturno; i++) {
+								let idxMano = iTurno * boardsXturno + i;
+								torneoIN[iTavolo][idxMano] = [iGruppoBoard * boardsXturno + i + 1, ns, ew];
+							}
+							iTavolo++;
+						}
+					}
+					// Coppia sulla diagonale (fissa)
+					for (let i = 0; i < boardsXturno; i++) {
+						let idxMano = iTurno * boardsXturno + i;
+						torneoIN[iTavolo][idxMano] = [iTurno * boardsXturno + i + 1, boardsTurni[iTurno][iTurno][0], boardsTurni[iTurno][iTurno][1]];
+					}
+				}
+				// Turni estesi (4-6)
+				for (let iTurno = 4; iTurno < 7; iTurno++) {
+					for (let iGruppoBoard = 4; iGruppoBoard < 7; iGruppoBoard++) {
+						let ns = boardsTurni[iGruppoBoard][iTurno][0];
+						let ew = boardsTurni[iGruppoBoard][iTurno][1];
+						let iBoard = 4 * boardsXturno + iGruppoBoard - 4;
+						let iTavolo;
+						if (ns === 5) iTavolo = 2;
+						else if (ns === 1) iTavolo = 0;
+						else if (ns === 2) iTavolo = 1;
+						
+						let idxMano = 4 * boardsXturno + iTurno - 4;
+						torneoIN[iTavolo][idxMano] = [iBoard + 1, ns, ew];
+					}
+				}
+			} else {
+				// CASO NORMALE
+				
+				for (let iTurno = 0; iTurno < nTurniIN; iTurno++) {
+					let iTavolo = 0;
+					let nTavFissi= nCoppieIN-nTurniIN;
+					let TavOffset= nTavFissi;
+					let minCoppia= nTurniIN+1;
+					let ns=0;
+					let ew=0;
+					let idxMano=0;
+					// Diagonali fisse		
+					for (let iGruppoBoard = 0; iGruppoBoard < nTurniIN; iGruppoBoard++) {					
+						ns = boardsTurni[iGruppoBoard][iTurno][0];
+						if (ns !== 0) {
+							ew = boardsTurni[iGruppoBoard][iTurno][1];
+							if(ns >= minCoppia)  { 
+								iTavolo= nCoppieIN - ns;;							
+								for (let i = 0; i < boardsXturno; i++) {
+									idxMano = iTurno * boardsXturno + i;
+									torneoIN[iTavolo][idxMano] = [iGruppoBoard * boardsXturno + i + 1, ns, ew];
+								}
+							}else if(ew >= minCoppia)  { 
+								iTavolo= nCoppieIN - ew;;							
+								for (let i = 0; i < boardsXturno; i++) {
+									idxMano = iTurno * boardsXturno + i;
+									torneoIN[iTavolo][idxMano] = [iGruppoBoard * boardsXturno + i + 1, ns, ew];
+								}
+							}	
+						}
+					}
+					// altre diagonali
+					iTavolo = TavOffset;
+					for (let iGruppoBoard = 0; iGruppoBoard < nTurniIN; iGruppoBoard++) {
+						ns = boardsTurni[iGruppoBoard][iTurno][0];
+						if (ns !== 0) {
+							ew = boardsTurni[iGruppoBoard][iTurno][1];
+							if(ns < minCoppia && ew < minCoppia)  { 							
+								for (let i = 0; i < boardsXturno; i++) {
+									idxMano = iTurno * boardsXturno + i;
+									torneoIN[iTavolo][idxMano] = [iGruppoBoard * boardsXturno + i + 1, ns, ew];
+								}
+								iTavolo++;
+							}	
+						}
+					}
+					// RIAGGIUSTA LA ASSEGNAZIONE DELLE COPPIE AI TAVOLI PER AVERE BOARDS SEQUENZIALI
+					if(iTurno>TavOffset-1 && iTurno>1)  {
+						for (let iTav= TavOffset; iTav < nTavoliIN; iTav++) {
+							// numero di board predecente
+							let idxManoPrec = (iTurno-1) * boardsXturno - 1;
+							let BoardPrec= torneoIN[iTav][idxManoPrec][0];
+							for (let kTav= iTav+1; kTav < nTavoliIN; kTav++) {
+								let idxMano = (iTurno-1) * boardsXturno ;
+								if (torneoIN[kTav][idxMano][0]% nTurniIN == (BoardPrec+1) % nTurniIN) {  // SE TROVA LA BOARD successiva
+									//  SCAMBIA iTav con kTav
+									for (let i = 0; i < boardsXturno; i++) {
+										let idxManok = (iTurno-1) * boardsXturno + i;
+										let dato = torneoIN[iTav][idxManok]; // [Board, NS, EW]
+										torneoIN[iTav][idxManok]= torneoIN[kTav][idxManok];
+										torneoIN[kTav][idxManok]= dato;
+									}	
+								}								
+							}	
+						}
+					}				
+				}
+										
+			}
+			//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+			// Una volta popolata completamente la matrice torneoIN[iTavolo][iTurno]
+			// dove ogni cella è [iBoard + 1, ns, ew]
+
+			torneoIN.sort((tavoloA, tavoloB) => {
+				// Recuperiamo il numero del board al primo turno (indice 0)
+				// tavoloA[0] è l'array [numeroBoard, ns, ew]
+				let boardT1_A = tavoloA[0] ? tavoloA[0][0] : 0;
+				let boardT1_B = tavoloB[0] ? tavoloB[0][0] : 0;
+
+				return boardT1_A - boardT1_B;
+			});			
+			//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+			
+			return torneoIN;
+		}
+//===============================================================
+/**
+ * Ottimizza il movimento delle coppie in torneoIN affinché seguano 
+ * la linea di gioco, reso indipendente da boardsXturno.
+ */
+function ottimizzaLineaDiGiocoIndipendente(torneoIN, nTurniIN) {
+    let nTavoli = torneoIN.length;
+    // Troviamo quanti elementi (mani) ci sono per turno dividendo la lunghezza totale per i turni
+    let nManiTotali = torneoIN[0].length;
+    let boardsXturno = Math.round(nManiTotali / nTurniIN);
+
+    // Iteriamo dal secondo turno fino all'ultimo
+    for (let t = 1; t < nTurniIN; t++) {
+        let idxManoAttuale = t * boardsXturno;
+        let idxManoPrecedente = (t - 1) * boardsXturno;
+
+        for (let iTav = 0; iTav < nTavoli; iTav++) {
+            // Leggiamo la coppia NS del turno precedente per stabilire l'obiettivo
+            let coppiaNS_Precedente = torneoIN[iTav][idxManoPrecedente][1];
+            
+            // Troviamo dove si trova questa coppia nel turno corrente
+            let tavoloDestinazione = -1;
+            for (let tv = 0; tv < nTavoli; tv++) {
+                if (torneoIN[tv][idxManoAttuale][1] === coppiaNS_Precedente || 
+                    torneoIN[tv][idxManoAttuale][2] === coppiaNS_Precedente) {
+                    tavoloDestinazione = tv;
+                    break;
+                }
+            }
+            
+            // Se trovata e non è già sul tavolo corretto, scambiamo l'intero blocco di mani del turno
+            if (tavoloDestinazione !== -1 && tavoloDestinazione !== iTav) {
+                for (let i = 0; i < boardsXturno; i++) {
+                    let idxAttuale = t * boardsXturno + i;
+                    let temp = torneoIN[iTav][idxAttuale];
+                    torneoIN[iTav][idxAttuale] = torneoIN[tavoloDestinazione][idxAttuale];
+                    torneoIN[tavoloDestinazione][idxAttuale] = temp;
+                }
+            }
+        }
+    }
+    return torneoIN;
+}//===============================================================
+		function disegnaTabellaTorneo(torneoIN) {
+			const nManiTotali = nTurniIN * boardsXturno;
+			let html = '<table><thead><tr><th>Tavolo</th>';
+			
+			// Intestazione con le Mani (o Turni)
+			for (let m = 1; m <= nManiTotali; m++) {
+				html += `<th style="background-color:#27ae60">M ${m}</th>`;
+			}
+			html += '</tr></thead><tbody>';
+
+			for (let t = 0; t < nTavoliIN; t++) {
+				html += `<tr><td><strong>Tavolo ${t + 1}</strong></td>`;
+				for (let m = 0; m < nManiTotali; m++) {
+					const dato = torneoIN[t][m]; // [Board, NS, EW]
+					if (dato && dato[1] !== 0) {
+						html += `<td>
+									<div style="font-size:0.75rem; color:#7f8c8d">B:${dato[0]}</div>
+									<div class="coppia-cell">${dato[1]}-${dato[2]}</div>
+								 </td>`;
+					} else {
+						html += '<td class="empty-cell">-</td>';
+					}
+				}
+				html += '</tr>';
+			}
+			html += '</tbody></table>';
+			
+			document.getElementById('torneo-container').innerHTML = html;
+				
+		}		
+
+		function generaListaMovimenti(torneoIN) {
+			let csv = "";
+			const nManiTotali = nTurniIN * boardsXturno;
+
+			for (let t = 0; t < nTavoliIN; t++) {
+				for (let m = 0; m < nManiTotali; m++) {
+					const riga = torneoIN[t][m];
+					// riga[0] è il Board, riga[1] è NS, riga[2] è EW
+					if (riga && riga[1] !== 0) {
+						// Formato: Tavolo, Board, CoppiaNS, CoppiaEW
+						// Aggiungiamo +1 a t perché gli array partono da 0
+						csv += `${t + 1},${riga[0]},${riga[1]},${riga[2]}\n`;
+					}
+				}
+			}
+
+			document.getElementById('movimenti-csv').innerText = csv;
+		}
+
+		// Funzione di utilità per copiare il testo negli appunti
+		function copiaTesto() {
+			const testo = document.getElementById('movimenti-csv').innerText;
+			navigator.clipboard.writeText(testo).then(() => {
+				alert("Lista copiata negli appunti!");
+			});
+		}
+//==============================================
+// Funzione per aggiornare i limiti dei turni in base ai tavoli
+function aggiornaLimitiTurni() {
+    const nTavoliInput = document.getElementById('nTavoli');
+    const nTurniInput = document.getElementById('nTurni');
+    
+    const tavoli = parseInt(nTavoliInput.value);
+    
+    // Calcolo limiti
+    //const minTurni = tavoli;
+	const minTurni = (tavoli % 2 === 0) ? tavoli + 1 : tavoli;
+    const maxTurni = (tavoli * 2) - 1;
+    
+    // Aggiornamento attributi HTML
+    nTurniInput.min = minTurni;
+    nTurniInput.max = maxTurni;
+    
+    // Se il valore attuale è fuori dai nuovi limiti, lo aggiustiamo
+    let attuale = parseInt(nTurniInput.value);
+    if (attuale < minTurni) nTurniInput.value = minTurni;
+    if (attuale > maxTurni) nTurniInput.value = maxTurni;
+    
+    // Opzionale: mostriamo un suggerimento visivo nel label
+    document.querySelector('label[for="nTurni"]').innerText = `Numero Turni (min ${minTurni}, max ${maxTurni})`;
+}
+
+// Colleghiamo l'evento: ogni volta che cambia il numero tavoli, aggiorna i turni
+document.getElementById('nTavoli').addEventListener('input', aggiornaLimitiTurni);
+
+// Eseguiamo una volta all'avvio per impostare i valori iniziali corretti
+window.onload = aggiornaLimitiTurni;
+
+
+function pulisciInterfaccia() {
+    // Svuota la tabella Boards/Turni
+    document.getElementById('table-container').innerHTML = 
+        '<p style="color: #999; text-align: center; padding: 50px;">Nessun movimento calcolato.</p>';
+    
+    // Svuota la tabella dei Tavoli
+    const torneoContainer = document.getElementById('torneo-container');
+    if (torneoContainer) torneoContainer.innerHTML = '';
+    
+    // Svuota la lista CSV
+    const movimentiCsv = document.getElementById('movimenti-csv');
+    if (movimentiCsv) movimentiCsv.innerText = '';
+}
+	//================================================================	
+	
+/**
+ * Bilancia la matrice boardsTurni ottimizzando la direzione NS/EW
+ */
+/*
+function bilanciaMatriceBoards(nTurniIN, boardsTurni) {
+    const AMPIEZZA = 6;
+
+    for (let iGruppo = 0; iGruppo < nTurniIN; iGruppo++) {
+        let coppieAttuali = [];
+        let mappaTurni = [];
+
+        // 1. Cattura tutte le coppie [NS, EW] per questo board (escludendo i riposi/zero)
+        for (let iTurno = 0; iTurno < nTurniIN; iTurno++) {
+            let ns = boardsTurni[iGruppo][iTurno][0];
+            let ew = boardsTurni[iGruppo][iTurno][1];
+            
+            if (ns !== 0 && ew !== 0) {
+                coppieAttuali.push([ns, ew]);
+                mappaTurni.push(iTurno); // Salva il turno originale per rimetterli a posto
+            }
+        }
+
+        if (coppieAttuali.length === 0) continue;
+
+        // 2. Esegue l'ottimizzazione per questo specifico board
+        // Calcoliamo il target reale: (Somma di tutti i numeri nel board) / 2
+        let sommaTotaleBoard = coppieAttuali.reduce((acc, c) => acc + c[0] + c[1], 0);
+        let targetFinale = sommaTotaleBoard / 2;
+        let passoTarget = sommaTotaleBoard / (2 * coppieAttuali.length);
+
+        let risultato = ottimizzaCoppie(coppieAttuali, targetFinale, passoTarget, AMPIEZZA);
+
+        // 3. Rimette le coppie al loro posto girandole se necessario
+        // Se l'algoritmo ha scelto l'indice 1 (EW), scambiamo NS ed EW
+        risultato.scelte.forEach((scelta, index) => {
+            let iTurnoOriginale = mappaTurni[index];
+            let nsOriginale = coppieAttuali[index][0];
+            let ewOriginale = coppieAttuali[index][1];
+
+            if (scelta === 0) {
+                // Mantiene NS - EW
+                boardsTurni[iGruppo][iTurnoOriginale] = [nsOriginale, ewOriginale];
+            } else {
+                // Inverte: l'originale EW diventa NS
+                boardsTurni[iGruppo][iTurnoOriginale] = [ewOriginale, nsOriginale];
+            }
+        });
+    }
+}
+*/
+//===============================================================
+function bilanciaMatriceBoards(nTurniIN, boardsTurni) {
+    const AMPIEZZA = 20;
+    let scartiPerBoard = []; // Array per memorizzare gli errori
+
+    for (let iGruppo = 0; iGruppo < nTurniIN; iGruppo++) {
+        let coppieAttuali = [];
+        let mappaTurni = [];
+
+        for (let iTurno = 0; iTurno < nTurniIN; iTurno++) {
+            let ns = boardsTurni[iGruppo][iTurno][0];
+            let ew = boardsTurni[iGruppo][iTurno][1];
+            if (ns !== 0 && ew !== 0) {
+                coppieAttuali.push([ns, ew]);
+                mappaTurni.push(iTurno);
+            }
+        }
+
+        if (coppieAttuali.length === 0) {
+            scartiPerBoard.push(0);
+            continue;
+        }
+
+        let sommaTotaleBoard = coppieAttuali.reduce((acc, c) => acc + c[0] + c[1], 0);
+        let targetFinale = sommaTotaleBoard / 2;
+        let passoTarget = sommaTotaleBoard / (2 * coppieAttuali.length);
+
+        let risultato = ottimizzaCoppie(coppieAttuali, targetFinale, passoTarget, AMPIEZZA);
+
+        // Calcoliamo l'errore: (Somma NS ottenuta) - (Target Ideale)
+        let errore = risultato.sommaFinale - targetFinale;
+        scartiPerBoard.push(errore);
+
+        // Aggiornamento matrice fisica
+        risultato.scelte.forEach((scelta, index) => {
+            let iTurnoOriginale = mappaTurni[index];
+            if (scelta === 1) { // Invertiamo se l'algoritmo ha scelto l'indice 1
+                let nsOrig = boardsTurni[iGruppo][iTurnoOriginale][0];
+                let ewOrig = boardsTurni[iGruppo][iTurnoOriginale][1];
+                boardsTurni[iGruppo][iTurnoOriginale] = [ewOrig, nsOrig];
+            }
+        });
+    }
+    return scartiPerBoard; // Restituiamo gli errori
+}
+//=======================================================
+// ALTRO TIPO DI OTTIMIZZAZIONE
+function bilanciaForzataNS(nTurniIN, boardsTurni) {
+    let scarti = new Array(nTurniIN).fill(0);
+    // Identifichiamo le coppie fisse (quelle che appaiono sulla diagonale o con indice alto)
+    // Nel sistema Howell, solitamente le coppie fisse sono quelle con indice > nTurni
+    const sogliaFisse = nTurniIN + 1; 
+
+    for (let iGruppo = 0; iGruppo < nTurniIN; iGruppo++) {
+        let sommaNS = 0;
+        let sommaEW = 0;
+
+        for (let iTurno = 0; iTurno < nTurniIN; iTurno++) {
+            let ns = boardsTurni[iGruppo][iTurno][0];
+            let ew = boardsTurni[iGruppo][iTurno][1];
+
+            if (ns === 0 || ew === 0) continue;
+
+            // Se la coppia fissa (es. 9+) è in EW, invertiamo
+            if (ew >= sogliaFisse && ew > ns) {
+                boardsTurni[iGruppo][iTurno] = [ew, ns];
+                // Aggiorniamo le variabili locali con i valori invertiti
+                ns = boardsTurni[iGruppo][iTurno][0];
+                ew = boardsTurni[iGruppo][iTurno][1];
+            }
+
+            sommaNS += ns;
+            sommaEW += ew;
+        }
+
+        // Assegniamo alla posizione iGruppo la somma NS meno la somma EW
+        scarti[iGruppo] = sommaNS - sommaEW;
+    }
+    
+    return scarti;
+}
+
+//  NESSUNA OTTIMIZZAZIONE
+function CalcolaSbilanciamento(nTurniIN, boardsTurni) {
+   let scarti = new Array(nTurniIN).fill(0);
+ 
+    for (let iGruppo = 0; iGruppo < nTurniIN; iGruppo++) {
+        let sommaNS = 0;
+        let sommaEW = 0;
+
+        for (let iTurno = 0; iTurno < nTurniIN; iTurno++) {
+            let ns = boardsTurni[iGruppo][iTurno][0];
+            let ew = boardsTurni[iGruppo][iTurno][1];
+
+            sommaNS += ns;
+            sommaEW += ew;
+        }
+
+        // Assegniamo alla posizione iGruppo la somma NS meno la somma EW
+        scarti[iGruppo] = sommaNS - sommaEW;
+    }
+    
+    return scarti;
+} 
+
+
+/**
+ * Funzione di supporto DP (Beam Search)
+ */
+
+/*
+function ottimizzaCoppie(coppie, targetFinale, passoTarget, ampiezza) {
+    // Ordiniamo internamente per differenza crescente (senza alterare mappaTurni)
+    // Creiamo un oggetto per mantenere il riferimento all'indice originale della collezione attuale
+    let coppieConInfo = coppie.map((c, i) => ({ val: c, id: i, diff: Math.abs(c[0] - c[1]) }));
+    coppieConInfo.sort((a, b) => a.diff - b.diff);
+
+    let m = coppieConInfo.length;
+    let dp = Array.from({ length: m }, () => [[], []]);
+
+    // Inizializzazione (prima cifra fissa della prima coppia ordinata)
+    dp[0][0] = [{ somma: coppieConInfo[0].val[0], scelte: [0] }];
+
+    for (let i = 1; i < m; i++) {
+        let targetAttuale = passoTarget * (i + 1);
+        for (let j = 0; j < 2; j++) {
+            let cifra = coppieConInfo[i].val[j];
+            let candidati = [];
+            for (let prevJ = 0; prevJ < 2; prevJ++) {
+                for (let percorso of dp[i - 1][prevJ]) {
+                    let s = percorso.somma + cifra;
+                    candidati.push({ somma: s, scelte: [...percorso.scelte, j], dist: Math.abs(s - targetAttuale) });
+                }
+            }
+            candidati.sort((a, b) => a.dist - b.dist);
+            dp[i][j] = candidati.slice(0, ampiezza).map(c => ({ somma: c.somma, scelte: c.scelte }));
+        }
+    }
+
+    let finali = [...dp[m - 1][0], ...dp[m - 1][1]];
+    let migliore = finali.reduce((p, c) => Math.abs(c.somma - targetFinale) < Math.abs(p.somma - targetFinale) ? c : p);
+
+
+    // Rimappiamo le scelte nell'ordine originale di input 'coppie'
+    let scelteFinaliOrdinate = new Array(m);
+    coppieConInfo.forEach((info, index) => {
+        scelteFinaliOrdinate[info.id] = migliore.scelte[index];
+    });
+    //return { scelte: scelteFinaliOrdinate };
+	return { 
+        scelte: scelteFinaliOrdinate, 
+        sommaFinale: migliore.somma  
+    };
+}	
+*/	
+function ottimizzaCoppie(coppie, targetFinale, passoTarget, ampiezza) {
+    // 1. Prepariamo i dati mantenendo l'ordine originale
+    let coppieConInfo = coppie.map((c, i) => ({ val: c, id: i, diff: Math.abs(c[0] - c[1]) }));
+    coppieConInfo.sort((a, b) => a.diff - b.diff);
+
+    let m = coppieConInfo.length;
+    let dp = Array.from({ length: m }, () => [[], []]);
+
+    // 2. Inizializzazione: Prima cifra della prima coppia fissa
+    dp[0][0] = [{ somma: coppieConInfo[0].val[0], scelte: [0] }];
+
+    // 3. Programmazione Dinamica (Beam Search)
+    for (let i = 1; i < m; i++) {
+        let targetAttuale = passoTarget * (i + 1);
+        for (let j = 0; j < 2; j++) {
+            let cifraCorrente = coppieConInfo[i].val[j];
+            let candidati = [];
+            for (let prevJ = 0; prevJ < 2; prevJ++) {
+                for (let percorso of dp[i - 1][prevJ]) {
+                    let s = percorso.somma + cifraCorrente;
+                    candidati.push({ 
+                        somma: s, 
+                        scelte: [...percorso.scelte, j], 
+                        dist: Math.abs(s - targetAttuale) 
+                    });
+                }
+            }
+            candidati.sort((a, b) => a.dist - b.dist);
+            dp[i][j] = candidati.slice(0, ampiezza).map(c => ({ somma: c.somma, scelte: c.scelte }));
+        }
+    }
+
+    // 4. Selezione del migliore dalla DP
+    let finali = [...dp[m - 1][0], ...dp[m - 1][1]];
+    let migliore = finali.reduce((p, c) => 
+        Math.abs(c.somma - targetFinale) < Math.abs(p.somma - targetFinale) ? c : p
+    );
+
+    // 5. FASE DI RAFFINAMENTO (Hill Climbing)
+    let sommaAttuale = migliore.somma;
+    let erroreAttuale = sommaAttuale - targetFinale;
+    let miglioramentoPossibile = true;
+
+    while (miglioramentoPossibile) {
+        miglioramentoPossibile = false;
+        let migliorScambio = null;
+        let minorErroreAssoluto = Math.abs(erroreAttuale);
+
+        // Partiamo da i = 1 perché la prima coppia (indice 0) deve restare fissa
+        for (let i = 1; i < m; i++) {
+            let ns = coppieConInfo[i].val[0];
+            let ew = coppieConInfo[i].val[1];
+            let indiceScelto = migliore.scelte[i];
+            
+            // Delta: quanto cambierebbe la somma invertendo la scelta attuale
+            let delta = (indiceScelto === 0) ? (ew - ns) : (ns - ew);
+            let nuovoErrore = erroreAttuale + delta;
+
+            if (Math.abs(nuovoErrore) < minorErroreAssoluto - 0.0001) {
+                minorErroreAssoluto = Math.abs(nuovoErrore);
+                migliorScambio = { index: i, nuovoIndice: 1 - indiceScelto, delta: delta, nuovoErrore: nuovoErrore };
+                miglioramentoPossibile = true;
+            }
+        }
+
+        if (miglioramentoPossibile) {
+            migliore.scelte[migliorScambio.index] = migliorScambio.nuovoIndice;
+            erroreAttuale = migliorScambio.nuovoErrore;
+            sommaAttuale += migliorScambio.delta;
+        }
+    }
+    migliore.somma = sommaAttuale;
+
+    // 6. Rimappatura all'ordine originale dei turni
+    let scelteFinaliOrdinate = new Array(m);
+    coppieConInfo.forEach((info, index) => {
+        scelteFinaliOrdinate[info.id] = migliore.scelte[index];
+    });
+
+    return { 
+        scelte: scelteFinaliOrdinate, 
+        sommaFinale: migliore.somma  
+    };
+}	
+    </script>
+</body>
+</html>
