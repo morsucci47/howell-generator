@@ -20,5 +20,5 @@ Since this is a client-side JavaScript tool, no installation is required.
    git clone [https://github.com/morsucci47/howell-generator.git]
 
 Usage:
-https://morsucci47.github.io/howell-generator/GenHowCC1.html
+https://morsucci47.github.io/howell-generator/GenHowCC3_en.html
 Tray  25 tables and 40 turns  for example.
