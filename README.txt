@@ -12,6 +12,7 @@ This project implements a unique "Chain Method" (Metodo delle Catene):
 1. **Board-Round Matrix**: It first builds a logical matrix where boards are rows and rounds are columns.
 2. **Backtracking Search**: It uses a recursive backtracking engine (`ruotaTutteRido`) to find valid pair rotations that satisfy bridge constraints (no pair meets twice, every pair plays every board once).
 3. **Vertical & Horizontal Optimization**: The algorithm validates "chains" of encounters to ensure the movement is balanced and follows the "1-up" or "staggered" rotation patterns.
+4. Recentely added features to balance movements (see Balance_optimization.pdf)
 
 ## 🛠️ Installation & Usage
 Since this is a client-side JavaScript tool, no installation is required.
