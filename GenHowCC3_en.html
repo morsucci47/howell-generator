@@ -104,7 +104,7 @@
                 Columns are rounds, rows are board groups. Each cell shows the match (NS pair - EW pair).
             </p>
             <p style="font-size: 0.9rem; color: #666;">
-                The numbers in brackets show the difference between Sum(NS pairs) and Sum(EW pairs).
+                The numbers in brackets show the imbalance (Sum(NS pairs) - Sum(EW pairs)).
             </p>
             <div id="table-container">
                 <p style="color: #999; text-align: center; padding: 50px;">Set the parameters and click Generate.</p>
@@ -384,7 +384,7 @@ function generaTorneoHowellRidotto() {
             // L'ottimizzazione si lancia a parte (OTTIMIZZA / CONTINUA).
             movimentoBase = copiaMovimento(boardsTurni);
             movimentoCorrente = copiaMovimento(boardsTurni);
-            esitoBilanciamento = ''; esitoMetodo = ''; esitoRicerca = ''; esitoContinua = '';
+            esitoBilanciamento = ''; esitoMetodo = ''; esitoRicerca = ''; esitoContinua = ''; esitoProva = '';
             ottimoDimostrato = false;
             paramGenerati = { tav: nTavoliIN, turni: nTurniIN, bxt: boardsXturno };
             enumStato = null;
@@ -2083,12 +2083,13 @@ const NOMI_STRATEGIA = {
 let esitoMetodo = '';      // riga di rapporto dell'ultima ottimizzazione
 let esitoRicerca = '';     // riga di rapporto dell'ultima ricerca di movimenti
 let esitoContinua = '';    // riga di rapporto dell'ultima continuazione
+let esitoProva = '';       // riga di rapporto dell'ultima prova scartata perche' non migliore
 let testoStatus = '';      // testo da mostrare nella riga di stato (metodo 5)
 let sogliaCorrente;        // scarto massimo da non superare in CONTINUA (impostato dalla ricerca a soglia)
 let paramGenerati = null;  // parametri (tavoli, turni, boards per turno) del movimento generato
 let enumStato = null;      // stato dell'enumeratore di movimenti (si riprende a ogni pressione)
 
-function aggiornaEsito() { esitoBilanciamento = [esitoMetodo, esitoRicerca, esitoContinua].filter(Boolean).join(' '); }
+function aggiornaEsito() { esitoBilanciamento = [esitoMetodo, esitoRicerca, esitoContinua, esitoProva].filter(Boolean).join(' '); }
 function tempoMaxMs() {
     const v = parseFloat(document.getElementById('tempoMax').value);
     return Math.max(1, isNaN(v) ? 5 : v) * 1000;
@@ -2186,7 +2187,7 @@ function eseguiRicercaMovimenti() {
     const inizio = Date.now(), maxMs = tempoMaxMs(), N = nCoppieIN;
     testoStatus = '';
     const chiudi = (testo, statusTesto) => {
-        esitoRicerca = testo; esitoContinua = ''; aggiornaEsito();
+        esitoRicerca = testo; esitoContinua = ''; esitoProva = ''; aggiornaEsito();
         testoStatus = statusTesto || testo;
         popolaRisultatoFinale(movimentoCorrente);
     };
@@ -2310,9 +2311,12 @@ function eseguiOttimizzazione() {
     testoStatus = '';
     if (strategia === 5) { eseguiRicercaMovimenti(); return strategia; }
     const bt = copiaMovimento(movimentoBase);
+    const t0 = Date.now();
+    const snap = { ottimo: ottimoDimostrato, soglia: sogliaCorrente, metodo: esitoMetodo, ricerca: esitoRicerca,
+                   continua: esitoContinua, prova: esitoProva, errori: errori_bil };
     ottimoDimostrato = false;
     sogliaCorrente = undefined;
-    esitoMetodo = ''; esitoRicerca = ''; esitoContinua = '';
+    esitoMetodo = ''; esitoRicerca = ''; esitoContinua = ''; esitoProva = '';
     if (strategia === 1) {
         errori_bil = bilanciaMatriceBoards(nTurniIN, bt);
     } else if (strategia === 2) {
@@ -2365,10 +2369,47 @@ function eseguiOttimizzazione() {
     } else {
         errori_bil = CalcolaSbilanciamento(nTurniIN, bt);
     }
+    // Annealing e ricerca esatta sono casuali / limitati dal tempo: si tiene il risultato migliore, quindi
+    // ripetere la ricerca non puo' peggiorare quello che si ha gia'.
+    if ((strategia === 3 || strategia === 4) && movimentoCorrente) {
+        const kNuovo = chiaveStrategia(bt, strategia), kAtt = chiaveStrategia(movimentoCorrente, strategia);
+        if (!megliodiLex(kNuovo, kAtt)) {
+            const nuovoOttimo = ottimoDimostrato, nuovoCosto = costoCorrente(bt);
+            ottimoDimostrato = snap.ottimo; sogliaCorrente = snap.soglia;
+            esitoMetodo = snap.metodo; esitoRicerca = snap.ricerca; esitoContinua = snap.continua;
+            errori_bil = snap.errori;
+            // se la nuova ricerca ha dimostrato l'ottimo e il costo e' lo stesso, l'attuale e' ottimo
+            if (nuovoOttimo && nuovoCosto === costoCorrente(movimentoCorrente)) ottimoDimostrato = true;
+            esitoProva = 'Last run of ' + NOMI_STRATEGIA[strategia] + ' (' + sec(Date.now() - t0) + '): ' + descriviChiave(kNuovo)
+                + ', not better than the current result (' + descriviChiave(kAtt) + '): the current result was kept.';
+            aggiornaEsito();
+            popolaRisultatoFinale(movimentoCorrente);
+            testoStatus = 'No better result than the current one: kept the current result.';
+            return strategia;
+        }
+    }
     aggiornaEsito();
     movimentoCorrente = bt;
     popolaRisultatoFinale(bt);
     return strategia;
+}
+
+/**
+ * Chiave di confronto secondo il criterio della strategia (si preferisce la chiave lessicograficamente minore):
+ *  - ricerca esatta/a soglia su movimenti incompleti: [scarto massimo, costo, scarto assoluto]
+ *  - altre strategie sulle coppie: [costo, scarto assoluto]
+ */
+function chiaveStrategia(bt, strategia) {
+    const k = chiaveBilanciamento(bt);
+    if (strategia === 4 && nTurniIN !== nCoppieIN - 1) return [eccessoMax(bt), k[0], k[1]];
+    return k;
+}
+const megliodiLex = (a, b) => {
+    for (let i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] < b[i]; }
+    return false;
+};
+function descriviChiave(k) {
+    return k.length === 3 ? 'max deviation ' + (k[0] / 2) + ', cost ' + k[1] : 'cost ' + k[0];
 }
 
 function avviaOttimizzazione() {
@@ -2389,6 +2430,7 @@ function avviaOttimizzazione() {
 function eseguiContinua() {
     if (ottimoDimostrato) return { saltata: true };
     const prima = calcolaBilanciamentoCoppie(movimentoCorrente).percentuale;
+    esitoProva = '';
     const LB = limiteInferiore();
     const r = annealingCoppie(movimentoCorrente, tempoMaxMs(), true, LB, sogliaCorrente);
     if (LB > 0 && r.costo <= LB) ottimoDimostrato = true;
